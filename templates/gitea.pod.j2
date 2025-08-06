@@ -1,0 +1,9 @@
+[Pod]
+PodName=gitea
+PublishPort={{ gitea_sshd_port }}:2222
+PublishPort={{ gitea_http_port }}:3000
+PublishPort={{ gitea_https_port }}:3001
+Network=gitea.network
+
+[Install]
+WantedBy=default.target

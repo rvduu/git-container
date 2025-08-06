@@ -1,0 +1,15 @@
+# Examples
+#
+# localhost ansible_connection=local ansible_become_user=root ansible_become_pass=<password>
+# host1 ansible_user=user1 ansible_password=<password> ansible_become_user=root ansible_become_pass=<password>
+# host1
+
+
+# Default settings
+[all:vars]
+change_host_sshd_port=true
+host_sshd_port=1022
+gitea_sshd_port=22
+unprivileged_port_start="{{ gitea_sshd_port }}"
+gitea_http_port=80
+gitea_https_port=443

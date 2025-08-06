@@ -1,0 +1,14 @@
+[Container]
+ContainerName=gitea-psql
+Environment=POSTGRES_USER=gitea
+Environment=POSTGRES_PASSWORD=gitea
+Environment=POSTGRES_DB=gitea
+Image=docker.io/library/postgres:14
+Volume=gitea-psql:/var/lib/postgresql/data:Z
+Pod=gitea.pod
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

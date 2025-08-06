@@ -1,0 +1,119 @@
+---
+- name: Prepare host to run ssh on a different port
+  hosts: all
+  become: true
+  tasks:
+    - name: Reconfigure the host's sshd port number
+      ansible.builtin.template:
+        src: templates/sshd_config.j2
+        dest: /etc/ssh/sshd_config.d/50-gitea.conf
+        mode: 0600
+      when: change_host_sshd_port|lower == "true" or change_host_sshd_port|lower == "yes"
+      notify:
+        - Restart sshd
+
+    - name: Label the host sshd Portnumber
+      community.general.seport:
+        ports: "{{ host_sshd_port }}"
+        proto: tcp
+        setype: ssh_port_t
+        state: present
+      when: change_host_sshd_port|lower == "true" or change_host_sshd_port|lower == "yes"
+      notify:
+        - Restart sshd
+
+    - name: Open firewall port for host's sshd
+      ansible.posix.firewalld:
+        port: "{{ host_sshd_port }}/tcp"
+        permanent: true
+        immediate: true
+        state: enabled
+      when: change_host_sshd_port|lower == "true" or change_host_sshd_port|lower == "yes"
+
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.systemd_service:
+        name: sshd
+        state: restarted
+
+
+
+- name: Prepare host for running Gitea Container
+  hosts: all
+  become: true
+  vars:
+    ansible_port: "{{ host_sshd_port }}"
+  tasks:
+    - name: Allow user processes to bind to privileged ports
+      ansible.posix.sysctl:
+        sysctl_file: /etc/sysctl.d/50-gitea.conf
+        name: net.ipv4.ip_unprivileged_port_start
+        value: "{{ unprivileged_port_start }}"
+        state: present
+        reload: true
+      when: change_host_sshd_port|lower == "true" or change_host_sshd_port|lower == "yes"
+
+    - name: Open firewall ports
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop:
+        - "{{ gitea_sshd_port }}/tcp"
+        - "{{ gitea_http_port }}/tcp"
+        - "{{ gitea_https_port }}/tcp"
+
+
+
+- name: Deploy Podman Quadlet templates
+  hosts: all
+  become: false
+  vars:
+    ansible_port: "{{ host_sshd_port }}"
+  tasks:
+    - name: Ensure directory for quadlet files exist
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/.config/containers/systemd"
+        state: directory
+
+    - name: Deploy Podman quadlet templates
+      ansible.builtin.template:
+        src: templates/{{ item }}.j2
+        dest: "{{ ansible_facts['user_dir'] }}/.config/containers/systemd/{{ item }}"
+        mode: '0644'
+      loop:
+        - gitea-conf.volume
+        - gitea.container
+        - gitea-data.volume
+        - gitea.network
+        - gitea.pod
+        - gitea-psql.container
+        - gitea-psql.volume
+      notify:
+        - Restart Gitea pod
+
+    - name: Enable linger for {{ ansible_facts['user_id'] }}
+      ansible.builtin.command:
+        cmd: "loginctl enable-linger {{ ansible_facts['user_id'] }}"
+        creates: "/var/lib/systemd/linger/{{ ansible_facts['user_id'] }}"
+      notify:
+        - Restart Gitea pod
+
+    - name: Ensure the Gitea pod is (re)started
+      ansible.builtin.meta:
+        flush_handlers
+      
+    - name: Display msg about accesibility
+      ansible.builtin.debug:
+        msg: "Configuration completed, host is now accessible using 'ssh -p {{ host_sshd_port }} -l <user> {{ ansible_host }}'. Gitea can be configured via http://{{ansible_host }}:{{ gitea_http_port }}/"
+
+
+  handlers:
+    - name: Restart Gitea pod
+      ansible.builtin.systemd_service:
+        name: gitea-pod
+        scope: user
+        state: restarted
+        daemon_reload: true
